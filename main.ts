@@ -403,8 +403,8 @@ function unifiedEdits(lines: string[], strict: boolean): Edit[] {
   let cur: UniSection | null = null;
   let headed = false;
   let i = 0;
-  const open = (oldP: string | null | undefined, newP: string | null | undefined): void => {
-    cur = { oldP, newP, paired: false, createFlag: false, delFlag: false, hunks: [] };
+  const open = (oldP: string | null | undefined, newP: string | null | undefined, paired = false): void => {
+    cur = { oldP, newP, paired, createFlag: false, delFlag: false, hunks: [] };
     sections.push(cur);
     headed = false;
   };
@@ -419,7 +419,7 @@ function unifiedEdits(lines: string[], strict: boolean): Edit[] {
     }
     if (cur === null) {
       if (l.startsWith('--- ') && (lines[i + 1] ?? '').startsWith('+++ ')) {
-        open(dashPath(l.slice(4)), dashPath(lines[i + 1]!.slice(4)));
+        open(dashPath(l.slice(4)), dashPath(lines[i + 1]!.slice(4)), true);
         i += 2;
         continue;
       }
@@ -431,7 +431,7 @@ function unifiedEdits(lines: string[], strict: boolean): Edit[] {
       if (l.startsWith('--- ')) {
         if ((lines[i + 1] ?? '').startsWith('+++ ')) {
           if (cur.paired) {
-            open(dashPath(l.slice(4)), dashPath(lines[i + 1]!.slice(4)));
+            open(dashPath(l.slice(4)), dashPath(lines[i + 1]!.slice(4)), true);
             i += 2;
             continue;
           }
@@ -443,8 +443,8 @@ function unifiedEdits(lines: string[], strict: boolean): Edit[] {
         }
         throw new Exit2(`error: parse ${i + 2}`);
       }
-      if (l.startsWith('rename from ')) { cur.oldP = trimWs(l.slice(12)); i += 1; continue; }
-      if (l.startsWith('rename to ')) { cur.newP = trimWs(l.slice(10)); i += 1; continue; }
+      if (l.startsWith('rename from ')) { if (!cur.paired) cur.oldP = trimWs(l.slice(12)); i += 1; continue; }
+      if (l.startsWith('rename to ')) { if (!cur.paired) cur.newP = trimWs(l.slice(10)); i += 1; continue; }
       if (l.startsWith('new file mode')) { cur.createFlag = true; i += 1; continue; }
       if (l.startsWith('deleted file mode')) { cur.delFlag = true; i += 1; continue; }
       if (l.startsWith('@@')) {
@@ -459,7 +459,7 @@ function unifiedEdits(lines: string[], strict: boolean): Edit[] {
       continue;
     }
     if (l.startsWith('--- ') && (lines[i + 1] ?? '').startsWith('+++ ')) {
-      open(dashPath(l.slice(4)), dashPath(lines[i + 1]!.slice(4)));
+      open(dashPath(l.slice(4)), dashPath(lines[i + 1]!.slice(4)), true);
       i += 2;
       continue;
     }
@@ -498,11 +498,13 @@ function searchReplaceEdits(lines: string[], strict: boolean): Edit[] {
     }
     let sep = -1;
     for (let j = searchIdx + 1; j < lines.length; j += 1) {
+      if (lines[j]!.trimEnd() === '<<<<<<< SEARCH') break;
       if (lines[j]!.trimEnd() === '=======') { sep = j; break; }
     }
     if (sep < 0) throw new Exit2(`error: parse ${searchIdx + 1}`);
     let end = -1;
     for (let j = sep + 1; j < lines.length; j += 1) {
+      if (lines[j]!.trimEnd() === '<<<<<<< SEARCH') break;
       if (lines[j]!.trimEnd() === '>>>>>>> REPLACE') { end = j; break; }
     }
     if (end < 0) throw new Exit2(`error: parse ${searchIdx + 1}`);
@@ -600,7 +602,10 @@ function v4aEdit(r: VRaw, strict: boolean): Edit {
       continue;
     }
     if (l.text === '' || l.text[0] === ' ' || l.text[0] === '-' || l.text[0] === '+') {
-      if (cur === null) cur = { anchor: null, eof: false, oldLines: [], newLines: [], ctx: [] };
+      if (cur === null) {
+        if (chunks.length > 0) throw new Exit2(`error: parse ${l.no}`);
+        cur = { anchor: null, eof: false, oldLines: [], newLines: [], ctx: [] };
+      }
       if (l.text === '') { cur.ctx.push(cur.oldLines.length); cur.oldLines.push(''); cur.newLines.push(''); }
       else if (l.text[0] === ' ') { cur.ctx.push(cur.oldLines.length); cur.oldLines.push(l.text.slice(1)); cur.newLines.push(l.text.slice(1)); }
       else if (l.text[0] === '-') { cur.oldLines.push(l.text.slice(1)); }
